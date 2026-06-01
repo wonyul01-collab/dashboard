@@ -569,12 +569,21 @@ function renderTab0() {
   const realTotal=realPurch+realRental;
   const hasReal=realTotal>0;
 
-  // ── 비교 기준 데이터 (RAW_DATA 기반) ──
+  // ── 비교 기준 데이터 (누적 기간 대응) ──
+  const _firstD  = filteredData[0];
   const _lastD   = filteredData[filteredData.length-1];
-  const _lastIdx = _lastD ? RAW_DATA.findIndex(d=>d.date===_lastD.date) : -1;
-  const _prevMonthD = _lastIdx>0 ? RAW_DATA[_lastIdx-1] : null;
-  const _pyYear  = _lastD ? String(parseInt(_lastD.date.slice(0,4))-1)+_lastD.date.slice(4) : null;
-  const _prevYearD  = _pyYear  ? RAW_DATA.find(d=>d.date===_pyYear)  : null;
+  const _N       = filteredData.length;
+  function _shiftDate(dateStr, mo) {
+    let [y,m]=dateStr.split('-').map(Number); m+=mo;
+    while(m>12){m-=12;y++;} while(m<1){m+=12;y--;}
+    return y+'-'+String(m).padStart(2,'0');
+  }
+  const _yoyStart = _shiftDate(_firstD.date, -12);
+  const _yoyEnd   = _shiftDate(_lastD.date,  -12);
+  const _yoyData  = RAW_DATA.filter(d=>d.date>=_yoyStart && d.date<=_yoyEnd);
+  const _momEnd   = _shiftDate(_firstD.date, -1);
+  const _momStart = _shiftDate(_firstD.date, -_N);
+  const _momData  = RAW_DATA.filter(d=>d.date>=_momStart && d.date<=_momEnd);
 
   // 총합 헬퍼
   function _tot(m,cat){
@@ -596,23 +605,29 @@ function renderTab0() {
     if(metric==='amount') return m.table1[key]?.total_amount ?? null;
     return m.table2[key]?.total_users ?? null;
   }
+  function _totArr(arr,cat){ return arr.reduce((s,m)=>s+_tot(m,cat),0); }
+  function _itemValArr(arr,key){ return arr.reduce((s,m)=>{const v=_itemVal(m,key);return s+(v??0);},0); }
 
-  const _currTotal   = _tot(_lastD, null);
-  const _momPct      = _pctStr(_currTotal, _tot(_prevMonthD, null));
-  const _yoyPct      = _pctStr(_currTotal, _tot(_prevYearD,  null));
+  const _currTotal   = _totArr(filteredData, null);
+  const _momTotal    = _totArr(_momData, null);
+  const _yoyTotal    = _totArr(_yoyData, null);
+  const _momPct      = _pctStr(_currTotal, _momTotal);
+  const _yoyPct      = _pctStr(_currTotal, _yoyTotal);
   const _unit        = metric==='amount' ? '천원' : metric==='users' ? '명' : '건';
 
-  const momCard = _prevMonthD ? (
+  const _momLabel = _N===1 ? '전월('+_momEnd+')' : '전기('+_momStart+'~'+_momEnd+')';
+  const _yoyLabel = _N===1 ? '전년동기('+_yoyEnd+')' : '전년동기('+_yoyStart+'~'+_yoyEnd+')';
+  const momCard = _momData.length>0 ? (
     '<div class="kpi-card prev">'+
-    '<div class="kpi-label">전월비 ('+_prevMonthD.date+' → '+(_lastD?.date||'')+') </div>'+
+    '<div class="kpi-label">'+(_N===1?'전월비':'전기비')+'('+_momLabel+')</div>'+
     '<div class="kpi-value sm">'+_arrow(_momPct)+'</div>'+
-    '<div class="kpi-sub">전월 '+fmt(_tot(_prevMonthD,null))+' '+_unit+'</div>'+
+    '<div class="kpi-sub">전기 '+fmt(_momTotal)+' '+_unit+'</div>'+
     '</div>') : '';
-  const yoyCard = _prevYearD ? (
+  const yoyCard = _yoyData.length>0 ? (
     '<div class="kpi-card yoy">'+
-    '<div class="kpi-label">전년동기비 ('+_prevYearD.date+')</div>'+
+    '<div class="kpi-label">전년동기비('+_yoyLabel+')</div>'+
     '<div class="kpi-value sm">'+_arrow(_yoyPct)+'</div>'+
-    '<div class="kpi-sub">전년동기 '+fmt(_tot(_prevYearD,null))+' '+_unit+'</div>'+
+    '<div class="kpi-sub">전년동기 '+fmt(_yoyTotal)+' '+_unit+'</div>'+
     '</div>') : '';
 
   // KPI — 지표별 강조 항목 변경 (인원수는 real_users 기준)
@@ -676,9 +691,9 @@ function renderTab0() {
   // Rank table — 급여액 컬럼은 항상 total_amount 기준 / 첫 번째 수치 컬럼은 지표에 따라 변경
   const isUsers=metric==='users';
   document.getElementById('thCountCol').textContent=isUsers?'인원수':'이용건수';
-  const _eP=document.getElementById('thPrevCol');    if(_eP) _eP.textContent=_prevMonthD?'전월('+_prevMonthD.date+')'   :'전월';
-  const _eM=document.getElementById('thMomCol');     if(_eM) _eM.textContent='전월비';
-  const _eY=document.getElementById('thYoyBaseCol'); if(_eY) _eY.textContent=_prevYearD ?'전년동기('+_prevYearD.date+')'  :'전년동기';
+  const _eP=document.getElementById('thPrevCol');    if(_eP) _eP.textContent=_momData.length?(_N===1?'전월('+_momEnd+')':'전기('+_momStart+'~'+_momEnd+')'):'전기';
+  const _eM=document.getElementById('thMomCol');     if(_eM) _eM.textContent=_N===1?'전월비':'전기비';
+  const _eY=document.getElementById('thYoyBaseCol'); if(_eY) _eY.textContent=_yoyData.length?(_N===1?'전년동기('+_yoyEnd+')':'전년동기('+_yoyStart+'~'+_yoyEnd+')'):'전년동기';
   const _eYY=document.getElementById('thYoyCol');    if(_eYY)_eYY.textContent='전년동기비';
   const sorted=[...items].sort((a,b)=>itemVal(b)-itemVal(a));
   const maxAmtRank=sorted.reduce((m,i)=>Math.max(m,i.total_amount),0)||1;
@@ -697,10 +712,10 @@ function renderTab0() {
       <td><div style="display:flex;align-items:center;gap:8px;"><span style="min-width:80px;text-align:right;">${valStr}</span>
         <div class="amount-bar" style="flex:1;"><div class="amount-fill" style="width:${barW}%;background:${item.category==='대여'?'#378ADD':'#1D9E75'};"></div></div></div></td>
       <td style="text-align:right; border-right:2px solid #e2e8f0;">${pct(amtVal,totalAmount)}%</td>
-      <td class="cmp-base" style="text-align:right; background:#fffbf5;">${_itemVal(_prevMonthD,item.key)!=null ? fmt(_itemVal(_prevMonthD,item.key)) : "-"}</td>
-      <td style="text-align:center; background:#fffbf5; border-right:2px solid #fed7aa;">${_arrow(_pctStr(itemVal(item), _itemVal(_prevMonthD,item.key)??0))}</td>
-      <td class="cmp-base" style="text-align:right; background:#f7fffe;">${_itemVal(_prevYearD,item.key)!=null ? fmt(_itemVal(_prevYearD,item.key)) : "-"}</td>
-      <td style="text-align:center; background:#f7fffe;">${_arrow(_pctStr(itemVal(item), _itemVal(_prevYearD,item.key)??0))}</td>
+      <td class="cmp-base" style="text-align:right; background:#fffbf5;">${_momData.length ? fmt(_itemValArr(_momData,item.key)) : "-"}</td>
+      <td style="text-align:center; background:#fffbf5; border-right:2px solid #fed7aa;">${_arrow(_pctStr(itemVal(item), _itemValArr(_momData,item.key)))}</td>
+      <td class="cmp-base" style="text-align:right; background:#f7fffe;">${_yoyData.length ? fmt(_itemValArr(_yoyData,item.key)) : "-"}</td>
+      <td style="text-align:center; background:#f7fffe;">${_arrow(_pctStr(itemVal(item), _itemValArr(_yoyData,item.key)))}</td>
     </tr>`;
   }).join('');
 }
